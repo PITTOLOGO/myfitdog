@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -28,10 +30,21 @@ import {
   Calendar,
   ShieldCheck,
   ShieldX,
+  Thermometer,
+  Home as HomeIcon,
+  Trees,
+  TrendingDown,
+  Gauge,
+  HeartPulse,
 } from "lucide-react";
 
 type ActivityLevel = "low" | "normal" | "high";
 type Sex = "M" | "F";
+
+type LifeStage = "puppy" | "adult" | "senior";
+type Environment = "indoor" | "outdoor" | "mixed";
+type SeasonFactor = "auto" | "cold" | "mild" | "hot";
+type GoalMode = "maintain" | "lose";
 
 type DogDoc = {
   id: string;
@@ -41,9 +54,17 @@ type DogDoc = {
   neutered: boolean;
   weightKg: number;
   targetWeightKg: number;
-  ageYears?: number;     // legacy
-  ageMonths?: number;    // new
+  ageYears?: number; // legacy
+  ageMonths?: number; // new
   activityLevel: ActivityLevel;
+
+  // NEW advanced profile
+  bcs?: number; // 1-9
+  lifeStage?: LifeStage;
+  environment?: Environment;
+  seasonFactor?: SeasonFactor;
+  goalMode?: GoalMode;
+  weeklyLossRatePct?: number; // es 0.5, 0.75, 1.0
 };
 
 const BREED_PRESETS = [
@@ -109,6 +130,14 @@ export default function DogPage() {
 
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>("normal");
 
+  // NEW advanced fields
+  const [bcs, setBcs] = useState<number>(5); // 1..9
+  const [lifeStage, setLifeStage] = useState<LifeStage>("adult");
+  const [environment, setEnvironment] = useState<Environment>("indoor");
+  const [seasonFactor, setSeasonFactor] = useState<SeasonFactor>("auto");
+  const [goalMode, setGoalMode] = useState<GoalMode>("maintain");
+  const [weeklyLossRatePct, setWeeklyLossRatePct] = useState<number>(0.75);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -145,7 +174,7 @@ export default function DogPage() {
       Number.isFinite(g) &&
       g > 0 &&
       totalAgeMonths >= 0 &&
-      totalAgeMonths <= 12 * 30 // 30 anni max “sicurezza”
+      totalAgeMonths <= 12 * 30
     );
   }, [name, resolvedWeight, resolvedGoal, totalAgeMonths]);
 
@@ -156,71 +185,77 @@ export default function DogPage() {
       else setUid(u.uid);
     });
   }, [router]);
-// Load user + dogs
-useEffect(() => {
-  async function load() {
-    if (!uid) return;            // ✅ check dentro l'async
-    const userId = uid;          // ✅ ora è string (non null)
 
-    setLoading(true);
-    setErr(null);
+  // Load user + dogs (fix TS + Vercel)
+  useEffect(() => {
+    async function load() {
+      if (!uid) return;
+      const userId = uid;
 
-    try {
-      const userRef = doc(db, "users", userId);
+      setLoading(true);
+      setErr(null);
 
-      await setDoc(userRef, { createdAt: serverTimestamp() }, { merge: true });
+      try {
+        const userRef = doc(db, "users", userId);
+        await setDoc(userRef, { createdAt: serverTimestamp() }, { merge: true });
 
-      const userSnap = await getDoc(userRef);
-      const userData = userSnap.data() as any;
-      setActiveDogId(userData?.activeDogId ?? null);
+        const userSnap = await getDoc(userRef);
+        const userData = userSnap.data() as any;
+        setActiveDogId(userData?.activeDogId ?? null);
 
-      const dogsRef = collection(db, "users", userId, "dogs");
-      const snap = await getDocs(dogsRef);
+        const dogsRef = collection(db, "users", userId, "dogs");
+        const snap = await getDocs(dogsRef);
 
-      const list: DogDoc[] = snap.docs.map((d) => {
-        const x = d.data() as any;
-        const legacyYears = Number(x.ageYears ?? 0);
-        const months = Number.isFinite(Number(x.ageMonths))
-          ? Number(x.ageMonths)
-          : Math.round(legacyYears * 12);
+        const list: DogDoc[] = snap.docs.map((d) => {
+          const x = d.data() as any;
+          const legacyYears = Number(x.ageYears ?? 0);
+          const months = Number.isFinite(Number(x.ageMonths))
+            ? Number(x.ageMonths)
+            : Math.round(legacyYears * 12);
 
-        return {
-          id: d.id,
-          name: x.name ?? "",
-          breed: x.breed ?? "",
-          sex: (x.sex ?? "M") as Sex,
-          neutered: Boolean(x.neutered),
-          weightKg: Number(x.weightKg ?? 0),
-          targetWeightKg: Number(x.targetWeightKg ?? 0),
-          ageYears: legacyYears,
-          ageMonths: months,
-          activityLevel: (x.activityLevel ?? "normal") as ActivityLevel,
-        };
-      });
+          return {
+            id: d.id,
+            name: x.name ?? "",
+            breed: x.breed ?? "",
+            sex: (x.sex ?? "M") as Sex,
+            neutered: Boolean(x.neutered),
+            weightKg: Number(x.weightKg ?? 0),
+            targetWeightKg: Number(x.targetWeightKg ?? 0),
+            ageYears: legacyYears,
+            ageMonths: months,
+            activityLevel: (x.activityLevel ?? "normal") as ActivityLevel,
 
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      setDogs(list);
-    } catch (e: any) {
-      setErr(e?.message ?? "Errore caricamento");
-    } finally {
-      setLoading(false);
+            // NEW defaults if missing
+            bcs: Number(x.bcs ?? 5),
+            lifeStage: (x.lifeStage ?? "adult") as LifeStage,
+            environment: (x.environment ?? "indoor") as Environment,
+            seasonFactor: (x.seasonFactor ?? "auto") as SeasonFactor,
+            goalMode: (x.goalMode ?? "maintain") as GoalMode,
+            weeklyLossRatePct: Number(x.weeklyLossRatePct ?? 0.75),
+          };
+        });
+
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setDogs(list);
+      } catch (e: any) {
+        setErr(e?.message ?? "Errore caricamento");
+      } finally {
+        setLoading(false);
+      }
     }
-  }
 
-  load();
-}, [uid]);
-
-       
+    load();
+  }, [uid]);
 
   async function setActive(id: string) {
-    const u = uid;
-    if (!u) return;
+    if (!uid) return;
+    const userId = uid;
 
     setErr(null);
     setOk(null);
 
     try {
-      await setDoc(doc(db, "users", u), { activeDogId: id }, { merge: true });
+      await setDoc(doc(db, "users", userId), { activeDogId: id }, { merge: true });
       setActiveDogId(id);
       setOk("Cane attivo aggiornato");
       setTimeout(() => setOk(null), 1500);
@@ -230,8 +265,8 @@ useEffect(() => {
   }
 
   async function saveDog() {
-    const u = uid;
-    if (!u) return;
+    if (!uid) return;
+    const userId = uid;
 
     setErr(null);
     setOk(null);
@@ -243,7 +278,7 @@ useEffect(() => {
 
     setSaving(true);
     try {
-      const dogsRef = collection(db, "users", u, "dogs");
+      const dogsRef = collection(db, "users", userId, "dogs");
 
       const docRef = await addDoc(dogsRef, {
         name: name.trim(),
@@ -252,19 +287,28 @@ useEffect(() => {
         neutered,
         weightKg: resolvedWeight,
         targetWeightKg: resolvedGoal,
-        ageMonths: totalAgeMonths,             // ✅ new
-        ageYears: Math.floor(totalAgeMonths / 12), // ✅ legacy compat
+        ageMonths: totalAgeMonths,
+        ageYears: Math.floor(totalAgeMonths / 12),
         activityLevel,
+
+        // NEW advanced profile
+        bcs: Math.max(1, Math.min(9, Number(bcs) || 5)),
+        lifeStage,
+        environment,
+        seasonFactor,
+        goalMode,
+        weeklyLossRatePct: goalMode === "lose" ? Number(weeklyLossRatePct) || 0.75 : null,
+
         createdAt: serverTimestamp(),
       });
 
-      await setDoc(doc(db, "users", u), { activeDogId: docRef.id }, { merge: true });
+      await setDoc(doc(db, "users", userId), { activeDogId: docRef.id }, { merge: true });
 
       setActiveDogId(docRef.id);
       setOk("Cane salvato");
       setTimeout(() => setOk(null), 2000);
 
-      // reset form (soft defaults)
+      // reset form
       setName("");
       setBreedPreset(BREED_PRESETS[0]);
       setBreedCustom("");
@@ -280,8 +324,16 @@ useEffect(() => {
       setAgeMonths(0);
       setActivityLevel("normal");
 
+      // reset advanced
+      setBcs(5);
+      setLifeStage("adult");
+      setEnvironment("indoor");
+      setSeasonFactor("auto");
+      setGoalMode("maintain");
+      setWeeklyLossRatePct(0.75);
+
       // reload list
-      const snap = await getDocs(collection(db, "users", u, "dogs"));
+      const snap = await getDocs(collection(db, "users", userId, "dogs"));
       const list: DogDoc[] = snap.docs.map((d) => {
         const x = d.data() as any;
         const legacyYears = Number(x.ageYears ?? 0);
@@ -300,6 +352,13 @@ useEffect(() => {
           ageYears: legacyYears,
           ageMonths: months,
           activityLevel: (x.activityLevel ?? "normal") as ActivityLevel,
+
+          bcs: Number(x.bcs ?? 5),
+          lifeStage: (x.lifeStage ?? "adult") as LifeStage,
+          environment: (x.environment ?? "indoor") as Environment,
+          seasonFactor: (x.seasonFactor ?? "auto") as SeasonFactor,
+          goalMode: (x.goalMode ?? "maintain") as GoalMode,
+          weeklyLossRatePct: Number(x.weeklyLossRatePct ?? 0.75),
         };
       });
       list.sort((a, b) => a.name.localeCompare(b.name));
@@ -319,7 +378,7 @@ useEffect(() => {
           <h2 className="text-xl font-black m-0 tracking-tight">Il tuo cane</h2>
           <div className="text-sm text-zinc-700/80 flex items-center gap-1.5">
             <Dog className="h-4 w-4" />
-            Gestisci profilo e obiettivi
+            Profilo + obiettivi su misura
           </div>
         </div>
 
@@ -378,9 +437,15 @@ useEffect(() => {
                                 <span className="text-zinc-600/80 font-semibold"> • {d.breed}</span>
                               ) : null}
                             </div>
+
                             <div className="text-sm text-zinc-700/75 mt-1">
                               Peso: {d.weightKg} kg · Obiettivo: {d.targetWeightKg} kg · Età:{" "}
                               {formatAgeFromMonths(months)} · Attività: {d.activityLevel}
+                            </div>
+
+                            <div className="text-xs text-zinc-700/70 mt-1">
+                              BCS: {d.bcs ?? 5}/9 · {d.goalMode === "lose" ? "Dimagrimento" : "Mantenimento"} · Stagione:{" "}
+                              {d.seasonFactor ?? "auto"}
                             </div>
                           </div>
 
@@ -409,7 +474,7 @@ useEffect(() => {
               tone="sky"
               icon={<Plus className="h-5 w-5" />}
               title="Aggiungi cane"
-              subtitle="Dati base + obiettivo"
+              subtitle="Dati base + profilo avanzato"
             >
               {/* Nome */}
               <div className="grid gap-1">
@@ -627,6 +692,164 @@ useEffect(() => {
 
                 <div className="text-xs text-zinc-700/70 mt-2">
                   Età impostata: <span className="font-semibold">{formatAgeFromMonths(totalAgeMonths)}</span>
+                </div>
+              </div>
+
+              {/* ===== ADVANCED PROFILE ===== */}
+              <div className="mt-5 pt-4 border-t border-black/5">
+                <div className="flex items-center gap-2 text-xs font-extrabold text-zinc-700/80 mb-2">
+                  <HeartPulse className="h-4 w-4" />
+                  Profilo avanzato (per calorie su misura)
+                </div>
+
+                {/* BCS + Life stage */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-1">
+                    <div className="text-xs font-extrabold text-zinc-700/80 flex items-center gap-2">
+                      <Gauge className="h-4 w-4" />
+                      BCS (1–9)
+                    </div>
+                    <select
+                      className="ui-select w-full px-4 py-3 rounded-2xl bg-white/80 ring-1 ring-black/5"
+                      value={String(bcs)}
+                      onChange={(e) => setBcs(Number(e.target.value))}
+                    >
+                      {Array.from({ length: 9 }).map((_, i) => {
+                        const v = i + 1;
+                        const label =
+                          v <= 3 ? `${v} (magro)` :
+                          v <= 5 ? `${v} (ok)` :
+                          v <= 7 ? `${v} (sovrappeso)` :
+                          `${v} (obeso)`;
+                        return (
+                          <option key={v} value={String(v)}>
+                            {label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <div className="text-[11px] text-zinc-700/60">
+                      Se non sai: metti 5 (normale).
+                    </div>
+                  </div>
+
+                  <div className="grid gap-1">
+                    <div className="text-xs font-extrabold text-zinc-700/80">Fase vita</div>
+                    <select
+                      className="ui-select w-full px-4 py-3 rounded-2xl bg-white/80 ring-1 ring-black/5"
+                      value={lifeStage}
+                      onChange={(e) => setLifeStage(e.target.value as LifeStage)}
+                    >
+                      <option value="puppy">Cucciolo</option>
+                      <option value="adult">Adulto</option>
+                      <option value="senior">Senior</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Environment + Season */}
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div className="grid gap-1">
+                    <div className="text-xs font-extrabold text-zinc-700/80 flex items-center gap-2">
+                      <HomeIcon className="h-4 w-4" />
+                      Ambiente
+                    </div>
+                    <select
+                      className="ui-select w-full px-4 py-3 rounded-2xl bg-white/80 ring-1 ring-black/5"
+                      value={environment}
+                      onChange={(e) => setEnvironment(e.target.value as Environment)}
+                    >
+                      <option value="indoor">In casa</option>
+                      <option value="mixed">Misto</option>
+                      <option value="outdoor">Fuori</option>
+                    </select>
+                  </div>
+
+                  <div className="grid gap-1">
+                    <div className="text-xs font-extrabold text-zinc-700/80 flex items-center gap-2">
+                      <Thermometer className="h-4 w-4" />
+                      Stagione / clima
+                    </div>
+                    <select
+                      className="ui-select w-full px-4 py-3 rounded-2xl bg-white/80 ring-1 ring-black/5"
+                      value={seasonFactor}
+                      onChange={(e) => setSeasonFactor(e.target.value as SeasonFactor)}
+                    >
+                      <option value="auto">Auto (consigliato)</option>
+                      <option value="cold">Freddo</option>
+                      <option value="mild">Mite</option>
+                      <option value="hot">Caldo</option>
+                    </select>
+                    <div className="text-[11px] text-zinc-700/60">
+                      “Auto” usa una stima stagionale.
+                    </div>
+                  </div>
+                </div>
+
+                {/* Goal mode */}
+                <div className="mt-3">
+                  <div className="text-xs font-extrabold text-zinc-700/80 flex items-center gap-2 mb-2">
+                    <TrendingDown className="h-4 w-4" />
+                    Obiettivo
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGoalMode("maintain")}
+                      className={cn(
+                        "rounded-2xl px-4 py-3 text-left ring-1 shadow-sm transition",
+                        goalMode === "maintain"
+                          ? "bg-emerald-50/70 ring-emerald-200/60"
+                          : "bg-white/80 ring-black/5 hover:bg-white"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Trees className="h-4 w-4" />
+                        <div className="font-extrabold">Mantenimento</div>
+                      </div>
+                      <div className="text-xs text-zinc-700/70 mt-1">Calorie stabili</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setGoalMode("lose")}
+                      className={cn(
+                        "rounded-2xl px-4 py-3 text-left ring-1 shadow-sm transition",
+                        goalMode === "lose"
+                          ? "bg-emerald-50/70 ring-emerald-200/60"
+                          : "bg-white/80 ring-black/5 hover:bg-white"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <TrendingDown className="h-4 w-4" />
+                        <div className="font-extrabold">Dimagrimento</div>
+                      </div>
+                      <div className="text-xs text-zinc-700/70 mt-1">Deficit controllato</div>
+                    </button>
+                  </div>
+
+                  {goalMode === "lose" ? (
+                    <div className="grid gap-1 mt-3">
+                      <div className="text-xs font-extrabold text-zinc-700/80">
+                        Velocità calo (peso/settimana)
+                      </div>
+                      <select
+                        className="ui-select w-full px-4 py-3 rounded-2xl bg-white/80 ring-1 ring-black/5"
+                        value={String(weeklyLossRatePct)}
+                        onChange={(e) => setWeeklyLossRatePct(Number(e.target.value))}
+                      >
+                        <option value="0.25">0.25% (molto soft)</option>
+                        <option value="0.5">0.5% (soft)</option>
+                        <option value="0.75">0.75% (standard)</option>
+                        <option value="1">1.0% (deciso)</option>
+                        <option value="1.25">1.25% (solo se molto sovrappeso)</option>
+                      </select>
+                      <div className="text-[11px] text-zinc-700/60">
+                        Suggerito: 0.5–1.0%. Se il cane ha fame o è stanco, abbassa.
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

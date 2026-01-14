@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -15,7 +17,7 @@ import {
 } from "firebase/firestore";
 
 import { auth, db } from "./lib/firebase";
-import { calcDailyCalories } from "./lib/calories";
+import { calcDailyCaloriesV2 } from "./lib/caloriesV2";
 
 import { PremiumCard } from "./components/PremiumCard";
 import { TapButton } from "./components/TapButton";
@@ -23,13 +25,12 @@ import { TapButton } from "./components/TapButton";
 import {
   Target,
   Drumstick,
-  Activity as ActivityIcon,
+  Activity,
   Sparkles,
   PawPrint,
   LogOut,
   Plus,
-  Flame,
-  Timer,
+  Info,
 } from "lucide-react";
 
 function startOfTodayTimestamp() {
@@ -38,8 +39,12 @@ function startOfTodayTimestamp() {
   return Timestamp.fromDate(d);
 }
 
-function clamp01(x: number) {
-  return Math.max(0, Math.min(1, x));
+// Stima stagionale semplice (Italia/Europa), solo se seasonFactor = "auto"
+function deriveSeasonFromMonth(): "cold" | "mild" | "hot" {
+  const m = new Date().getMonth() + 1; // 1..12
+  if (m === 12 || m === 1 || m === 2) return "cold";
+  if (m >= 6 && m <= 8) return "hot";
+  return "mild";
 }
 
 export default function Home() {
@@ -53,6 +58,7 @@ export default function Home() {
 
   const [targetKcal, setTargetKcal] = useState<number | null>(null);
   const [targetRange, setTargetRange] = useState<{ low: number; high: number } | null>(null);
+  const [kcalNotes, setKcalNotes] = useState<string[]>([]);
 
   // today logs
   const [eatenToday, setEatenToday] = useState<number>(0);
@@ -66,7 +72,7 @@ export default function Home() {
     });
   }, [router]);
 
-  // 2) load active dog + calc kcal
+  // 2) load active dog + calc kcal (V2)
   useEffect(() => {
     async function loadDogAndCalc() {
       if (!uid) return;
@@ -79,6 +85,7 @@ export default function Home() {
         setActiveDogName(null);
         setTargetKcal(null);
         setTargetRange(null);
+        setKcalNotes([]);
         setEatenToday(0);
         setActivityToday(0);
         return;
@@ -92,15 +99,27 @@ export default function Home() {
       const d = dogSnap.data() as any;
       setActiveDogName(d.name ?? null);
 
-      const out = calcDailyCalories({
+      const season =
+        (d.seasonFactor ?? "auto") === "auto" ? deriveSeasonFromMonth() : (d.seasonFactor ?? "mild");
+
+      const out = calcDailyCaloriesV2({
         weightKg: Number(d.weightKg),
         targetWeightKg: Number(d.targetWeightKg),
         neutered: Boolean(d.neutered),
         activityLevel: (d.activityLevel ?? "normal"),
+
+        bcs: Number(d.bcs ?? 5),
+        lifeStage: (d.lifeStage ?? "adult"),
+        environment: (d.environment ?? "indoor"),
+        seasonFactor: season, // passiamo cold/mild/hot
+        goalMode: (d.goalMode ?? "maintain"),
+        weeklyLossRatePct: Number(d.weeklyLossRatePct ?? 0.75),
+        breed: String(d.breed ?? ""),
       });
 
       setTargetKcal(out.recommended);
       setTargetRange(out.range);
+      setKcalNotes(out.notes ?? []);
     }
 
     loadDogAndCalc().catch(() => {
@@ -108,6 +127,7 @@ export default function Home() {
       setActiveDogName(null);
       setTargetKcal(null);
       setTargetRange(null);
+      setKcalNotes([]);
       setEatenToday(0);
       setActivityToday(0);
     });
@@ -122,7 +142,6 @@ export default function Home() {
 
       const foodRef = collection(db, "users", uid, "dogs", activeDogId, "foodLogs");
       const foodSnap = await getDocs(query(foodRef, where("createdAt", ">=", start)));
-
       let kcalSum = 0;
       foodSnap.forEach((x) => {
         const v = x.data() as any;
@@ -132,7 +151,6 @@ export default function Home() {
 
       const actRef = collection(db, "users", uid, "dogs", activeDogId, "activityLogs");
       const actSnap = await getDocs(query(actRef, where("createdAt", ">=", start)));
-
       let minSum = 0;
       actSnap.forEach((x) => {
         const v = x.data() as any;
@@ -149,21 +167,15 @@ export default function Home() {
 
   const progress = useMemo(() => {
     if (!targetKcal || targetKcal <= 0) return 0;
-    return clamp01(eatenToday / targetKcal);
+    return Math.max(0, Math.min(1, eatenToday / targetKcal));
   }, [eatenToday, targetKcal]);
 
-  const pct = Math.max(0.02, progress);
-  const progressPct = `${Math.round(pct * 100)}%`;
-
-  const delta = useMemo(() => {
-    if (!targetKcal) return null;
-    return targetKcal - eatenToday;
-  }, [targetKcal, eatenToday]);
+  const progressPct = `${Math.max(2, Math.round(progress * 100))}%`;
 
   if (!uid) return null;
 
   return (
-    <div className="max-w-xl mx-auto p-4 min-h-screen">
+    <div className="max-w-xl mx-auto p-4 min-h-screen bg-[#FFFBF5]">
       {/* Header */}
       <div className="flex justify-between items-center mt-2 gap-3">
         <div>
@@ -174,12 +186,7 @@ export default function Home() {
           </div>
         </div>
 
-        <TapButton
-          size="sm"
-          fullWidth={false}
-          variant="secondary"
-          onClick={() => signOut(auth)}
-        >
+        <TapButton size="sm" fullWidth={false} variant="secondary" onClick={() => signOut(auth)}>
           <LogOut className="h-4 w-4" />
           Logout
         </TapButton>
@@ -187,14 +194,13 @@ export default function Home() {
 
       {/* Cards */}
       <div className="grid gap-3 mt-4">
-        {/* Target */}
         <PremiumCard
           tone="mint"
           icon={<Target className="h-5 w-5" />}
           title={activeDogName ? `Target kcal • ${activeDogName}` : "Target kcal"}
           subtitle={
             targetKcal && targetRange
-              ? `${targetRange.low}–${targetRange.high} kcal (consigliato: ${targetKcal})`
+              ? `${targetKcal} kcal (≈ ${targetRange.low}–${targetRange.high})`
               : "Aggiungi un cane per calcolare"
           }
           right={
@@ -203,76 +209,42 @@ export default function Home() {
             </span>
           }
         >
-          {/* Big numbers */}
-          <div className="mt-2 grid gap-3">
-            <div className="flex items-end justify-between">
-              <div>
-                <div className="text-xs font-extrabold text-zinc-700/80">Mangiate oggi</div>
-                <div className="text-3xl leading-none font-black tracking-tight text-zinc-950">
-                  {targetKcal ? eatenToday : "—"}
-                  <span className="text-sm font-semibold text-zinc-600/80 ml-1">kcal</span>
-                </div>
-              </div>
-
-              <div className="text-right">
-                <div className="text-xs font-extrabold text-zinc-700/80">Target</div>
-                <div className="text-2xl leading-none font-black tracking-tight text-zinc-950">
-                  {targetKcal ?? "—"}
-                  <span className="text-sm font-semibold text-zinc-600/80 ml-1">kcal</span>
-                </div>
-              </div>
+          <div className="mt-1">
+            <div className="flex justify-between text-xs text-zinc-700/80 mb-1">
+              <span>Mangiate oggi</span>
+              <span className="font-semibold">
+                {targetKcal ? `${eatenToday} / ${targetKcal}` : "—"}
+              </span>
             </div>
 
-            {/* Premium progress */}
-            <div className="relative">
-              <div className="h-3 rounded-full bg-white/70 ring-1 ring-black/5 shadow-inner overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-emerald-300 relative"
-                  style={{ width: progressPct }}
-                >
-                  {/* glow */}
-                  <div className="absolute inset-0 bg-white/35" />
-                  <div className="absolute -right-2 top-1/2 -translate-y-1/2 h-5 w-5 rounded-full bg-emerald-300 blur-[6px] opacity-70" />
-                </div>
-              </div>
-
-              <div className="mt-2 text-xs text-zinc-700/75">
-                {targetKcal
-                  ? progress >= 1
-                    ? "Target raggiunto"
-                    : delta !== null
-                      ? `Ti restano ~${Math.max(0, delta)} kcal`
-                      : "—"
-                  : "Vai su Cane e salva i dati"}
-              </div>
+            <div className="h-3 rounded-full bg-white/70 ring-1 ring-black/5 shadow-inner overflow-hidden">
+              <div className="h-full rounded-full bg-emerald-300" style={{ width: progressPct }} />
             </div>
 
-            {/* mini chips */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-2xl bg-white/75 ring-1 ring-black/5 px-3 py-2 shadow-sm">
+            <div className="mt-2 text-xs text-zinc-700/70">
+              {targetKcal
+                ? progress >= 1
+                  ? "Hai raggiunto il target"
+                  : "Obiettivo di oggi: restare nel range"
+                : "Vai su Cane e salva i dati"}
+            </div>
+
+            {kcalNotes.length ? (
+              <div className="mt-3 rounded-2xl bg-white/70 ring-1 ring-black/5 p-3">
                 <div className="flex items-center gap-2 text-xs font-extrabold text-zinc-700/80">
-                  <Flame className="h-4 w-4" />
-                  Cibo
+                  <Info className="h-4 w-4" />
+                  Calcolo su misura
                 </div>
-                <div className="text-sm font-black text-zinc-950 mt-0.5">
-                  {targetKcal ? `${eatenToday} kcal` : "—"}
-                </div>
+                <ul className="mt-2 text-xs text-zinc-700/70 list-disc pl-4 space-y-1">
+                  {kcalNotes.slice(0, 4).map((n, idx) => (
+                    <li key={idx}>{n}</li>
+                  ))}
+                </ul>
               </div>
-
-              <div className="rounded-2xl bg-white/75 ring-1 ring-black/5 px-3 py-2 shadow-sm">
-                <div className="flex items-center gap-2 text-xs font-extrabold text-zinc-700/80">
-                  <Timer className="h-4 w-4" />
-                  Attività
-                </div>
-                <div className="text-sm font-black text-zinc-950 mt-0.5">
-                  {activityToday ? `${activityToday} min` : "—"}
-                </div>
-              </div>
-            </div>
+            ) : null}
           </div>
         </PremiumCard>
 
-        {/* Quick cards */}
         <div className="grid grid-cols-2 gap-3">
           <PremiumCard
             tone="peach"
@@ -283,7 +255,7 @@ export default function Home() {
           />
           <PremiumCard
             tone="sky"
-            icon={<ActivityIcon className="h-5 w-5" />}
+            icon={<Activity className="h-5 w-5" />}
             title="Attività"
             subtitle={activityToday ? `${activityToday} min` : "—"}
             onClick={() => router.push("/log")}
@@ -293,13 +265,9 @@ export default function Home() {
         <PremiumCard
           tone="cream"
           icon={<Sparkles className="h-5 w-5" />}
-          title="Coach AI"
-          subtitle={
-            activeDogName
-              ? "Presto: consigli automatici su porzioni e pasti"
-              : "Aggiungi il tuo cane per iniziare"
-          }
-          onClick={() => router.push("/dog")}
+          title="Coach"
+          subtitle={activeDogName ? "Consigli automatici basati sui log" : "Aggiungi il tuo cane per iniziare"}
+          onClick={() => router.push("/log")}
         />
       </div>
 
