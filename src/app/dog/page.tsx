@@ -156,59 +156,61 @@ export default function DogPage() {
       else setUid(u.uid);
     });
   }, [router]);
+// Load user + dogs
+useEffect(() => {
+  async function load() {
+    if (!uid) return;            // ✅ check dentro l'async
+    const userId = uid;          // ✅ ora è string (non null)
 
-  // Load user + dogs
-  useEffect(() => {
-    const u = uid;
-    if (!u) return;
+    setLoading(true);
+    setErr(null);
 
-    async function load() {
-      setLoading(true);
-      setErr(null);
-      try {
-        const userRef = doc(db, "users", u);
+    try {
+      const userRef = doc(db, "users", userId);
 
-        await setDoc(userRef, { createdAt: serverTimestamp() }, { merge: true });
+      await setDoc(userRef, { createdAt: serverTimestamp() }, { merge: true });
 
-        const userSnap = await getDoc(userRef);
-        const userData = userSnap.data() as any;
-        setActiveDogId(userData?.activeDogId ?? null);
+      const userSnap = await getDoc(userRef);
+      const userData = userSnap.data() as any;
+      setActiveDogId(userData?.activeDogId ?? null);
 
-        const dogsRef = collection(db, "users", u, "dogs");
-        const snap = await getDocs(dogsRef);
+      const dogsRef = collection(db, "users", userId, "dogs");
+      const snap = await getDocs(dogsRef);
 
-        const list: DogDoc[] = snap.docs.map((d) => {
-          const x = d.data() as any;
-          const legacyYears = Number(x.ageYears ?? 0);
-          const months = Number.isFinite(Number(x.ageMonths))
-            ? Number(x.ageMonths)
-            : Math.round(legacyYears * 12);
+      const list: DogDoc[] = snap.docs.map((d) => {
+        const x = d.data() as any;
+        const legacyYears = Number(x.ageYears ?? 0);
+        const months = Number.isFinite(Number(x.ageMonths))
+          ? Number(x.ageMonths)
+          : Math.round(legacyYears * 12);
 
-          return {
-            id: d.id,
-            name: x.name ?? "",
-            breed: x.breed ?? "",
-            sex: (x.sex ?? "M") as Sex,
-            neutered: Boolean(x.neutered),
-            weightKg: Number(x.weightKg ?? 0),
-            targetWeightKg: Number(x.targetWeightKg ?? 0),
-            ageYears: legacyYears,
-            ageMonths: months,
-            activityLevel: (x.activityLevel ?? "normal") as ActivityLevel,
-          };
-        });
+        return {
+          id: d.id,
+          name: x.name ?? "",
+          breed: x.breed ?? "",
+          sex: (x.sex ?? "M") as Sex,
+          neutered: Boolean(x.neutered),
+          weightKg: Number(x.weightKg ?? 0),
+          targetWeightKg: Number(x.targetWeightKg ?? 0),
+          ageYears: legacyYears,
+          ageMonths: months,
+          activityLevel: (x.activityLevel ?? "normal") as ActivityLevel,
+        };
+      });
 
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        setDogs(list);
-      } catch (e: any) {
-        setErr(e?.message ?? "Errore caricamento");
-      } finally {
-        setLoading(false);
-      }
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      setDogs(list);
+    } catch (e: any) {
+      setErr(e?.message ?? "Errore caricamento");
+    } finally {
+      setLoading(false);
     }
+  }
 
-    load();
-  }, [uid]);
+  load();
+}, [uid]);
+
+       
 
   async function setActive(id: string) {
     const u = uid;
