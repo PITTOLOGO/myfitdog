@@ -23,7 +23,7 @@ import { calcDailyCaloriesV2 } from "../lib/caloriesV2";
 
 import { PremiumCard } from "../components/PremiumCard";
 import { TapButton } from "../components/TapButton";
-
+import { recomputeDailySummary, startOfDayTs } from "../lib/dailySummary";
 import { Sparkles, Info, TrendingDown, Flame } from "lucide-react";
 
 function startOfTodayTimestamp() {
@@ -249,6 +249,16 @@ export default function LogPage() {
         day: startOfTodayTimestamp(),
       });
 
+            if (targetKcal) {
+        await recomputeDailySummary({
+          uid: u,
+          dogId,
+          day: startOfDayTs(new Date()),
+          target: targetKcal,
+        });
+      }
+
+
       setOk("Pasto salvato ✅");
       setTimeout(() => setOk(null), 1500);
     } catch (e: any) {
@@ -280,6 +290,16 @@ export default function LogPage() {
         createdAt: serverTimestamp(),
         day: startOfTodayTimestamp(),
       });
+
+            if (targetKcal) {
+        await recomputeDailySummary({
+          uid: u,
+          dogId,
+          day: startOfDayTs(new Date()),
+          target: targetKcal,
+        });
+      }
+
 
       setOk("Attività salvata ✅");
       setTimeout(() => setOk(null), 1500);
