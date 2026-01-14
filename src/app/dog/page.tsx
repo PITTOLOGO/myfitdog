@@ -7,11 +7,13 @@ import { onAuthStateChanged } from "firebase/auth";
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { useRouter } from "next/navigation";
@@ -36,6 +38,10 @@ import {
   TrendingDown,
   Gauge,
   HeartPulse,
+  Pencil,
+  Trash2,
+  Save,
+  X,
 } from "lucide-react";
 
 type ActivityLevel = "low" | "normal" | "high";
@@ -58,13 +64,12 @@ type DogDoc = {
   ageMonths?: number; // new
   activityLevel: ActivityLevel;
 
-  // NEW advanced profile
   bcs?: number; // 1-9
   lifeStage?: LifeStage;
   environment?: Environment;
   seasonFactor?: SeasonFactor;
   goalMode?: GoalMode;
-  weeklyLossRatePct?: number; // es 0.5, 0.75, 1.0
+  weeklyLossRatePct?: number;
 };
 
 const BREED_PRESETS = [
@@ -112,6 +117,9 @@ export default function DogPage() {
   const [dogs, setDogs] = useState<DogDoc[]>([]);
   const [activeDogId, setActiveDogId] = useState<string | null>(null);
 
+  // edit mode
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   // form
   const [name, setName] = useState("");
   const [breedPreset, setBreedPreset] = useState<string>(BREED_PRESETS[0]);
@@ -119,7 +127,7 @@ export default function DogPage() {
   const [sex, setSex] = useState<Sex>("M");
   const [neutered, setNeutered] = useState<boolean>(false);
 
-  const [weightPreset, setWeightPreset] = useState<string>("10"); // select value
+  const [weightPreset, setWeightPreset] = useState<string>("10");
   const [weightCustom, setWeightCustom] = useState<string>("");
 
   const [goalPreset, setGoalPreset] = useState<string>("10");
@@ -130,8 +138,8 @@ export default function DogPage() {
 
   const [activityLevel, setActivityLevel] = useState<ActivityLevel>("normal");
 
-  // NEW advanced fields
-  const [bcs, setBcs] = useState<number>(5); // 1..9
+  // advanced
+  const [bcs, setBcs] = useState<number>(5);
   const [lifeStage, setLifeStage] = useState<LifeStage>("adult");
   const [environment, setEnvironment] = useState<Environment>("indoor");
   const [seasonFactor, setSeasonFactor] = useState<SeasonFactor>("auto");
@@ -178,6 +186,110 @@ export default function DogPage() {
     );
   }, [name, resolvedWeight, resolvedGoal, totalAgeMonths]);
 
+  function resetForm() {
+    setEditingId(null);
+
+    setName("");
+    setBreedPreset(BREED_PRESETS[0]);
+    setBreedCustom("");
+    setSex("M");
+    setNeutered(false);
+
+    setWeightPreset("10");
+    setWeightCustom("");
+
+    setGoalPreset("10");
+    setGoalCustom("");
+
+    setAgeYears(2);
+    setAgeMonths(0);
+
+    setActivityLevel("normal");
+
+    setBcs(5);
+    setLifeStage("adult");
+    setEnvironment("indoor");
+    setSeasonFactor("auto");
+    setGoalMode("maintain");
+    setWeeklyLossRatePct(0.75);
+  }
+
+  function loadDogIntoForm(d: DogDoc) {
+    setEditingId(d.id);
+
+    setName(d.name ?? "");
+
+    // breed preset vs custom
+    const breed = (d.breed ?? "").trim();
+    if (!breed) {
+      setBreedPreset(BREED_PRESETS[0]);
+      setBreedCustom("");
+    } else if (BREED_PRESETS.includes(breed)) {
+      setBreedPreset(breed);
+      setBreedCustom("");
+    } else {
+      setBreedPreset("__custom__");
+      setBreedCustom(breed);
+    }
+
+    setSex(d.sex ?? "M");
+    setNeutered(Boolean(d.neutered));
+
+    setWeightPreset(String(d.weightKg || 10));
+    setWeightCustom("");
+    setGoalPreset(String(d.targetWeightKg || 10));
+    setGoalCustom("");
+
+    const months = Number(d.ageMonths ?? Math.round((d.ageYears ?? 0) * 12));
+    setAgeYears(Math.floor(months / 12));
+    setAgeMonths(months % 12);
+
+    setActivityLevel((d.activityLevel ?? "normal") as ActivityLevel);
+
+    setBcs(Number(d.bcs ?? 5));
+    setLifeStage((d.lifeStage ?? "adult") as LifeStage);
+    setEnvironment((d.environment ?? "indoor") as Environment);
+    setSeasonFactor((d.seasonFactor ?? "auto") as SeasonFactor);
+    setGoalMode((d.goalMode ?? "maintain") as GoalMode);
+    setWeeklyLossRatePct(Number(d.weeklyLossRatePct ?? 0.75));
+  }
+
+  async function reloadDogs(userId: string) {
+    const dogsRef = collection(db, "users", userId, "dogs");
+    const snap = await getDocs(dogsRef);
+
+    const list: DogDoc[] = snap.docs.map((d) => {
+      const x = d.data() as any;
+      const legacyYears = Number(x.ageYears ?? 0);
+      const months = Number.isFinite(Number(x.ageMonths))
+        ? Number(x.ageMonths)
+        : Math.round(legacyYears * 12);
+
+      return {
+        id: d.id,
+        name: x.name ?? "",
+        breed: x.breed ?? "",
+        sex: (x.sex ?? "M") as Sex,
+        neutered: Boolean(x.neutered),
+        weightKg: Number(x.weightKg ?? 0),
+        targetWeightKg: Number(x.targetWeightKg ?? 0),
+        ageYears: legacyYears,
+        ageMonths: months,
+        activityLevel: (x.activityLevel ?? "normal") as ActivityLevel,
+
+        bcs: Number(x.bcs ?? 5),
+        lifeStage: (x.lifeStage ?? "adult") as LifeStage,
+        environment: (x.environment ?? "indoor") as Environment,
+        seasonFactor: (x.seasonFactor ?? "auto") as SeasonFactor,
+        goalMode: (x.goalMode ?? "maintain") as GoalMode,
+        weeklyLossRatePct: Number(x.weeklyLossRatePct ?? 0.75),
+      };
+    });
+
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    setDogs(list);
+  }
+
   // Auth guard
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
@@ -186,7 +298,7 @@ export default function DogPage() {
     });
   }, [router]);
 
-  // Load user + dogs (fix TS + Vercel)
+  // Load
   useEffect(() => {
     async function load() {
       if (!uid) return;
@@ -203,40 +315,7 @@ export default function DogPage() {
         const userData = userSnap.data() as any;
         setActiveDogId(userData?.activeDogId ?? null);
 
-        const dogsRef = collection(db, "users", userId, "dogs");
-        const snap = await getDocs(dogsRef);
-
-        const list: DogDoc[] = snap.docs.map((d) => {
-          const x = d.data() as any;
-          const legacyYears = Number(x.ageYears ?? 0);
-          const months = Number.isFinite(Number(x.ageMonths))
-            ? Number(x.ageMonths)
-            : Math.round(legacyYears * 12);
-
-          return {
-            id: d.id,
-            name: x.name ?? "",
-            breed: x.breed ?? "",
-            sex: (x.sex ?? "M") as Sex,
-            neutered: Boolean(x.neutered),
-            weightKg: Number(x.weightKg ?? 0),
-            targetWeightKg: Number(x.targetWeightKg ?? 0),
-            ageYears: legacyYears,
-            ageMonths: months,
-            activityLevel: (x.activityLevel ?? "normal") as ActivityLevel,
-
-            // NEW defaults if missing
-            bcs: Number(x.bcs ?? 5),
-            lifeStage: (x.lifeStage ?? "adult") as LifeStage,
-            environment: (x.environment ?? "indoor") as Environment,
-            seasonFactor: (x.seasonFactor ?? "auto") as SeasonFactor,
-            goalMode: (x.goalMode ?? "maintain") as GoalMode,
-            weeklyLossRatePct: Number(x.weeklyLossRatePct ?? 0.75),
-          };
-        });
-
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        setDogs(list);
+        await reloadDogs(userId);
       } catch (e: any) {
         setErr(e?.message ?? "Errore caricamento");
       } finally {
@@ -278,9 +357,8 @@ export default function DogPage() {
 
     setSaving(true);
     try {
-      const dogsRef = collection(db, "users", userId, "dogs");
-
-      const docRef = await addDoc(dogsRef, {
+      // payload comune
+      const payload: any = {
         name: name.trim(),
         breed: resolvedBreed || "",
         sex,
@@ -291,82 +369,79 @@ export default function DogPage() {
         ageYears: Math.floor(totalAgeMonths / 12),
         activityLevel,
 
-        // NEW advanced profile
         bcs: Math.max(1, Math.min(9, Number(bcs) || 5)),
         lifeStage,
         environment,
         seasonFactor,
         goalMode,
         weeklyLossRatePct: goalMode === "lose" ? Number(weeklyLossRatePct) || 0.75 : null,
+      };
 
-        createdAt: serverTimestamp(),
-      });
+      if (editingId) {
+        // UPDATE
+        const ref = doc(db, "users", userId, "dogs", editingId);
+        await updateDoc(ref, payload);
+        setOk("Cane aggiornato ✅");
+        setTimeout(() => setOk(null), 1500);
 
-      await setDoc(doc(db, "users", userId), { activeDogId: docRef.id }, { merge: true });
+        await reloadDogs(userId);
+        resetForm();
+      } else {
+        // CREATE
+        const dogsRef = collection(db, "users", userId, "dogs");
+        const docRef = await addDoc(dogsRef, {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
 
-      setActiveDogId(docRef.id);
-      setOk("Cane salvato");
-      setTimeout(() => setOk(null), 2000);
+        await setDoc(doc(db, "users", userId), { activeDogId: docRef.id }, { merge: true });
+        setActiveDogId(docRef.id);
 
-      // reset form
-      setName("");
-      setBreedPreset(BREED_PRESETS[0]);
-      setBreedCustom("");
-      setSex("M");
-      setNeutered(false);
+        setOk("Cane salvato ✅");
+        setTimeout(() => setOk(null), 1500);
 
-      setWeightPreset("10");
-      setWeightCustom("");
-      setGoalPreset("10");
-      setGoalCustom("");
-
-      setAgeYears(2);
-      setAgeMonths(0);
-      setActivityLevel("normal");
-
-      // reset advanced
-      setBcs(5);
-      setLifeStage("adult");
-      setEnvironment("indoor");
-      setSeasonFactor("auto");
-      setGoalMode("maintain");
-      setWeeklyLossRatePct(0.75);
-
-      // reload list
-      const snap = await getDocs(collection(db, "users", userId, "dogs"));
-      const list: DogDoc[] = snap.docs.map((d) => {
-        const x = d.data() as any;
-        const legacyYears = Number(x.ageYears ?? 0);
-        const months = Number.isFinite(Number(x.ageMonths))
-          ? Number(x.ageMonths)
-          : Math.round(legacyYears * 12);
-
-        return {
-          id: d.id,
-          name: x.name ?? "",
-          breed: x.breed ?? "",
-          sex: (x.sex ?? "M") as Sex,
-          neutered: Boolean(x.neutered),
-          weightKg: Number(x.weightKg ?? 0),
-          targetWeightKg: Number(x.targetWeightKg ?? 0),
-          ageYears: legacyYears,
-          ageMonths: months,
-          activityLevel: (x.activityLevel ?? "normal") as ActivityLevel,
-
-          bcs: Number(x.bcs ?? 5),
-          lifeStage: (x.lifeStage ?? "adult") as LifeStage,
-          environment: (x.environment ?? "indoor") as Environment,
-          seasonFactor: (x.seasonFactor ?? "auto") as SeasonFactor,
-          goalMode: (x.goalMode ?? "maintain") as GoalMode,
-          weeklyLossRatePct: Number(x.weeklyLossRatePct ?? 0.75),
-        };
-      });
-      list.sort((a, b) => a.name.localeCompare(b.name));
-      setDogs(list);
+        await reloadDogs(userId);
+        resetForm();
+      }
     } catch (e: any) {
       setErr(e?.message ?? "Errore salvataggio");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function deleteDog(dogId: string) {
+    if (!uid) return;
+    const userId = uid;
+
+    const d = dogs.find((x) => x.id === dogId);
+    const ok = confirm(`Eliminare "${d?.name ?? "cane"}"? Questa azione non si può annullare.`);
+    if (!ok) return;
+
+    setErr(null);
+    setOk(null);
+
+    try {
+      // elimina doc cane
+      await deleteDoc(doc(db, "users", userId, "dogs", dogId));
+
+      // se era attivo -> rimuovi activeDogId (o scegli il primo rimasto)
+      const remaining = dogs.filter((x) => x.id !== dogId);
+      if (activeDogId === dogId) {
+        const next = remaining[0]?.id ?? null;
+        await setDoc(doc(db, "users", userId), { activeDogId: next }, { merge: true });
+        setActiveDogId(next);
+      }
+
+      // se stavi editando quello eliminato -> reset
+      if (editingId === dogId) resetForm();
+
+      setOk("Cane eliminato ✅");
+      setTimeout(() => setOk(null), 1500);
+
+      await reloadDogs(userId);
+    } catch (e: any) {
+      setErr(e?.message ?? "Errore eliminazione");
     }
   }
 
@@ -378,7 +453,7 @@ export default function DogPage() {
           <h2 className="text-xl font-black m-0 tracking-tight">Il tuo cane</h2>
           <div className="text-sm text-zinc-700/80 flex items-center gap-1.5">
             <Dog className="h-4 w-4" />
-            Profilo + obiettivi su misura
+            Gestisci profilo, obiettivi e calorie
           </div>
         </div>
 
@@ -400,7 +475,7 @@ export default function DogPage() {
               tone="cream"
               icon={<PawPrint className="h-5 w-5" />}
               title="Cani salvati"
-              subtitle={dogs.length ? "Tocca un cane per impostarlo attivo" : "Aggiungi il primo cane qui sotto"}
+              subtitle={dogs.length ? "Attivo = usato per target e log" : "Aggiungi il primo cane qui sotto"}
               right={
                 activeDogId ? (
                   <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm">
@@ -418,49 +493,73 @@ export default function DogPage() {
                   {dogs.map((d) => {
                     const isActive = activeDogId === d.id;
                     const months = Number(d.ageMonths ?? Math.round((d.ageYears ?? 0) * 12));
+
                     return (
-                      <button
+                      <div
                         key={d.id}
-                        onClick={() => setActive(d.id)}
                         className={cn(
-                          "text-left rounded-2xl p-3 transition",
-                          "ring-1 ring-black/5",
-                          "shadow-[0_14px_40px_rgba(17,24,39,0.06)]",
-                          isActive ? "bg-emerald-50/70" : "bg-white/80 hover:bg-white"
+                          "rounded-2xl p-3 ring-1 ring-black/5 shadow-[0_14px_40px_rgba(17,24,39,0.06)]",
+                          isActive ? "bg-emerald-50/70" : "bg-white/80"
                         )}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="font-extrabold text-zinc-950">
-                              {d.name}
-                              {d.breed ? (
-                                <span className="text-zinc-600/80 font-semibold"> • {d.breed}</span>
-                              ) : null}
+                        <button
+                          onClick={() => setActive(d.id)}
+                          className="w-full text-left"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="font-extrabold text-zinc-950">
+                                {d.name}
+                                {d.breed ? (
+                                  <span className="text-zinc-600/80 font-semibold"> • {d.breed}</span>
+                                ) : null}
+                              </div>
+
+                              <div className="text-sm text-zinc-700/75 mt-1">
+                                Peso: {d.weightKg} kg · Obiettivo: {d.targetWeightKg} kg · Età:{" "}
+                                {formatAgeFromMonths(months)} · Attività: {d.activityLevel}
+                              </div>
+
+                              <div className="text-xs text-zinc-700/70 mt-1">
+                                BCS: {d.bcs ?? 5}/9 · {d.goalMode === "lose" ? "Dimagrimento" : "Mantenimento"} · Stagione:{" "}
+                                {d.seasonFactor ?? "auto"}
+                              </div>
                             </div>
 
-                            <div className="text-sm text-zinc-700/75 mt-1">
-                              Peso: {d.weightKg} kg · Obiettivo: {d.targetWeightKg} kg · Età:{" "}
-                              {formatAgeFromMonths(months)} · Attività: {d.activityLevel}
-                            </div>
-
-                            <div className="text-xs text-zinc-700/70 mt-1">
-                              BCS: {d.bcs ?? 5}/9 · {d.goalMode === "lose" ? "Dimagrimento" : "Mantenimento"} · Stagione:{" "}
-                              {d.seasonFactor ?? "auto"}
-                            </div>
+                            {isActive ? (
+                              <div className="flex items-center gap-1 text-emerald-900 font-extrabold text-xs">
+                                <BadgeCheck className="h-4 w-4" />
+                                ATTIVO
+                              </div>
+                            ) : (
+                              <div className="text-xs font-semibold text-zinc-600/80">
+                                Tocca per attivare
+                              </div>
+                            )}
                           </div>
+                        </button>
 
-                          {isActive ? (
-                            <div className="flex items-center gap-1 text-emerald-900 font-extrabold text-xs">
-                              <BadgeCheck className="h-4 w-4" />
-                              ATTIVO
-                            </div>
-                          ) : (
-                            <div className="text-xs font-semibold text-zinc-600/80">
-                              Imposta attivo
-                            </div>
-                          )}
+                        {/* action buttons */}
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <TapButton
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => loadDogIntoForm(d)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                            Modifica
+                          </TapButton>
+
+                          <TapButton
+                            size="sm"
+                            variant="dark"
+                            onClick={() => deleteDog(d.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                            Elimina
+                          </TapButton>
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -472,9 +571,16 @@ export default function DogPage() {
           <div className="mt-4">
             <PremiumCard
               tone="sky"
-              icon={<Plus className="h-5 w-5" />}
-              title="Aggiungi cane"
-              subtitle="Dati base + profilo avanzato"
+              icon={editingId ? <Pencil className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+              title={editingId ? "Modifica cane" : "Aggiungi cane"}
+              subtitle={editingId ? "Aggiorna i dati e salva" : "Dati base + profilo avanzato"}
+              right={
+                editingId ? (
+                  <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm">
+                    Editing
+                  </span>
+                ) : null
+              }
             >
               {/* Nome */}
               <div className="grid gap-1">
@@ -691,18 +797,18 @@ export default function DogPage() {
                 </div>
 
                 <div className="text-xs text-zinc-700/70 mt-2">
-                  Età impostata: <span className="font-semibold">{formatAgeFromMonths(totalAgeMonths)}</span>
+                  Età impostata:{" "}
+                  <span className="font-semibold">{formatAgeFromMonths(totalAgeMonths)}</span>
                 </div>
               </div>
 
-              {/* ===== ADVANCED PROFILE ===== */}
+              {/* Advanced */}
               <div className="mt-5 pt-4 border-t border-black/5">
                 <div className="flex items-center gap-2 text-xs font-extrabold text-zinc-700/80 mb-2">
                   <HeartPulse className="h-4 w-4" />
-                  Profilo avanzato (per calorie su misura)
+                  Profilo avanzato
                 </div>
 
-                {/* BCS + Life stage */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid gap-1">
                     <div className="text-xs font-extrabold text-zinc-700/80 flex items-center gap-2">
@@ -728,9 +834,6 @@ export default function DogPage() {
                         );
                       })}
                     </select>
-                    <div className="text-[11px] text-zinc-700/60">
-                      Se non sai: metti 5 (normale).
-                    </div>
                   </div>
 
                   <div className="grid gap-1">
@@ -738,7 +841,7 @@ export default function DogPage() {
                     <select
                       className="ui-select w-full px-4 py-3 rounded-2xl bg-white/80 ring-1 ring-black/5"
                       value={lifeStage}
-                      onChange={(e) => setLifeStage(e.target.value as LifeStage)}
+                      onChange={(e) => setLifeStage(e.target.value as any)}
                     >
                       <option value="puppy">Cucciolo</option>
                       <option value="adult">Adulto</option>
@@ -747,7 +850,6 @@ export default function DogPage() {
                   </div>
                 </div>
 
-                {/* Environment + Season */}
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   <div className="grid gap-1">
                     <div className="text-xs font-extrabold text-zinc-700/80 flex items-center gap-2">
@@ -757,7 +859,7 @@ export default function DogPage() {
                     <select
                       className="ui-select w-full px-4 py-3 rounded-2xl bg-white/80 ring-1 ring-black/5"
                       value={environment}
-                      onChange={(e) => setEnvironment(e.target.value as Environment)}
+                      onChange={(e) => setEnvironment(e.target.value as any)}
                     >
                       <option value="indoor">In casa</option>
                       <option value="mixed">Misto</option>
@@ -773,20 +875,16 @@ export default function DogPage() {
                     <select
                       className="ui-select w-full px-4 py-3 rounded-2xl bg-white/80 ring-1 ring-black/5"
                       value={seasonFactor}
-                      onChange={(e) => setSeasonFactor(e.target.value as SeasonFactor)}
+                      onChange={(e) => setSeasonFactor(e.target.value as any)}
                     >
                       <option value="auto">Auto (consigliato)</option>
                       <option value="cold">Freddo</option>
                       <option value="mild">Mite</option>
                       <option value="hot">Caldo</option>
                     </select>
-                    <div className="text-[11px] text-zinc-700/60">
-                      “Auto” usa una stima stagionale.
-                    </div>
                   </div>
                 </div>
 
-                {/* Goal mode */}
                 <div className="mt-3">
                   <div className="text-xs font-extrabold text-zinc-700/80 flex items-center gap-2 mb-2">
                     <TrendingDown className="h-4 w-4" />
@@ -845,9 +943,6 @@ export default function DogPage() {
                         <option value="1">1.0% (deciso)</option>
                         <option value="1.25">1.25% (solo se molto sovrappeso)</option>
                       </select>
-                      <div className="text-[11px] text-zinc-700/60">
-                        Suggerito: 0.5–1.0%. Se il cane ha fame o è stanco, abbassa.
-                      </div>
                     </div>
                   ) : null}
                 </div>
@@ -858,12 +953,35 @@ export default function DogPage() {
               {ok ? <div className="mt-3 text-sm text-emerald-800 font-semibold">{ok}</div> : null}
 
               {/* CTA */}
-              <div className="mt-4">
+              <div className="mt-4 grid grid-cols-2 gap-2">
                 <TapButton variant="primary" onClick={saveDog} fullWidth>
-                  {saving ? "Salvo..." : "Salva cane"}
+                  {saving ? "Salvo..." : editingId ? (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Salva modifiche
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4" />
+                      Salva cane
+                    </>
+                  )}
                 </TapButton>
-                <div className="text-xs text-zinc-700/60 mt-2">* Campi obbligatori.</div>
+
+                {editingId ? (
+                  <TapButton variant="secondary" onClick={resetForm} fullWidth>
+                    <X className="h-4 w-4" />
+                    Annulla
+                  </TapButton>
+                ) : (
+                  <TapButton variant="secondary" onClick={() => router.push("/")} fullWidth>
+                    <ChevronLeft className="h-4 w-4" />
+                    Torna
+                  </TapButton>
+                )}
               </div>
+
+              <div className="text-xs text-zinc-700/60 mt-2">* Campi obbligatori.</div>
             </PremiumCard>
           </div>
         </>

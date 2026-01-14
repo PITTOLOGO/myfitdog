@@ -31,6 +31,8 @@ import {
   LogOut,
   Plus,
   Info,
+  Scale,
+  Goal,
 } from "lucide-react";
 
 function startOfTodayTimestamp() {
@@ -39,9 +41,8 @@ function startOfTodayTimestamp() {
   return Timestamp.fromDate(d);
 }
 
-// Stima stagionale semplice (Italia/Europa), solo se seasonFactor = "auto"
 function deriveSeasonFromMonth(): "cold" | "mild" | "hot" {
-  const m = new Date().getMonth() + 1; // 1..12
+  const m = new Date().getMonth() + 1;
   if (m === 12 || m === 1 || m === 2) return "cold";
   if (m >= 6 && m <= 8) return "hot";
   return "mild";
@@ -52,10 +53,13 @@ export default function Home() {
 
   const [uid, setUid] = useState<string | null>(null);
 
-  // dog + kcal
+  // dog
   const [activeDogId, setActiveDogId] = useState<string | null>(null);
   const [activeDogName, setActiveDogName] = useState<string | null>(null);
+  const [weightKg, setWeightKg] = useState<number | null>(null);
+  const [targetWeightKg, setTargetWeightKg] = useState<number | null>(null);
 
+  // kcal
   const [targetKcal, setTargetKcal] = useState<number | null>(null);
   const [targetRange, setTargetRange] = useState<{ low: number; high: number } | null>(null);
   const [kcalNotes, setKcalNotes] = useState<string[]>([]);
@@ -64,7 +68,7 @@ export default function Home() {
   const [eatenToday, setEatenToday] = useState<number>(0);
   const [activityToday, setActivityToday] = useState<number>(0);
 
-  // 1) auth
+  // auth
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       if (!u) router.push("/login");
@@ -72,7 +76,7 @@ export default function Home() {
     });
   }, [router]);
 
-  // 2) load active dog + calc kcal (V2)
+  // load active dog + calc kcal v2
   useEffect(() => {
     async function loadDogAndCalc() {
       if (!uid) return;
@@ -83,6 +87,9 @@ export default function Home() {
       if (!dogId) {
         setActiveDogId(null);
         setActiveDogName(null);
+        setWeightKg(null);
+        setTargetWeightKg(null);
+
         setTargetKcal(null);
         setTargetRange(null);
         setKcalNotes([]);
@@ -97,7 +104,10 @@ export default function Home() {
       if (!dogSnap.exists()) return;
 
       const d = dogSnap.data() as any;
+
       setActiveDogName(d.name ?? null);
+      setWeightKg(Number(d.weightKg ?? null));
+      setTargetWeightKg(Number(d.targetWeightKg ?? null));
 
       const season =
         (d.seasonFactor ?? "auto") === "auto" ? deriveSeasonFromMonth() : (d.seasonFactor ?? "mild");
@@ -111,7 +121,7 @@ export default function Home() {
         bcs: Number(d.bcs ?? 5),
         lifeStage: (d.lifeStage ?? "adult"),
         environment: (d.environment ?? "indoor"),
-        seasonFactor: season, // passiamo cold/mild/hot
+        seasonFactor: season,
         goalMode: (d.goalMode ?? "maintain"),
         weeklyLossRatePct: Number(d.weeklyLossRatePct ?? 0.75),
         breed: String(d.breed ?? ""),
@@ -125,6 +135,9 @@ export default function Home() {
     loadDogAndCalc().catch(() => {
       setActiveDogId(null);
       setActiveDogName(null);
+      setWeightKg(null);
+      setTargetWeightKg(null);
+
       setTargetKcal(null);
       setTargetRange(null);
       setKcalNotes([]);
@@ -133,7 +146,7 @@ export default function Home() {
     });
   }, [uid]);
 
-  // 3) load today logs
+  // load today logs
   useEffect(() => {
     async function loadToday() {
       if (!uid || !activeDogId) return;
@@ -184,6 +197,20 @@ export default function Home() {
             <PawPrint className="h-4 w-4" />
             {activeDogName ? `Cane attivo: ${activeDogName}` : "Seleziona un cane per iniziare"}
           </div>
+
+          {/* peso + obiettivo sempre visibili */}
+          {activeDogName ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm flex items-center gap-1">
+                <Scale className="h-3.5 w-3.5" />
+                Peso: {weightKg ?? "—"} kg
+              </span>
+              <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm flex items-center gap-1">
+                <Goal className="h-3.5 w-3.5" />
+                Obiettivo: {targetWeightKg ?? "—"} kg
+              </span>
+            </div>
+          ) : null}
         </div>
 
         <TapButton size="sm" fullWidth={false} variant="secondary" onClick={() => signOut(auth)}>
