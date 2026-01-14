@@ -12,7 +12,6 @@ import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { PremiumCard } from "../components/PremiumCard";
 import { TapButton } from "../components/TapButton";
-import { upsertTodayCoachTip } from "./lib/coachTips";
 import { Dog, LogIn, UserPlus, Mail, Lock, AlertTriangle, User, Globe } from "lucide-react";
 
 type Mode = "login" | "signup";
