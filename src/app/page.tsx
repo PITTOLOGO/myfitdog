@@ -21,11 +21,13 @@ import { calcDailyCaloriesV2 } from "./lib/caloriesV2";
 import { ensureTodaySummary } from "./lib/dailySummaryRead";
 import { getDailySummaries } from "./lib/dailySummaryList";
 import { buildCoachInsight } from "./lib/coachRules";
-import { PremiumCard } from "./components/PremiumCard";
-import { TapButton } from "./components/TapButton";
 import { upsertTodayCoachTip } from "./lib/coachTips";
+
+import { PremiumCard } from "./components/PremiumCard";
+import { CalorieRing } from "./components/CalorieRing";
+import { TapButton } from "./components/TapButton";
+
 import {
-  Target,
   Drumstick,
   Activity,
   Sparkles,
@@ -35,6 +37,9 @@ import {
   Info,
   Scale,
   Goal,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
 } from "lucide-react";
 
 function startOfTodayTimestamp() {
@@ -70,7 +75,7 @@ export default function Home() {
   const [eatenToday, setEatenToday] = useState<number>(0);
   const [activityToday, setActivityToday] = useState<number>(0);
 
-  // ✅ daily summary (nuovo)
+  // daily summary
   const [todaySummary, setTodaySummary] = useState<{
     caloriesIn: number;
     caloriesOut: number;
@@ -79,79 +84,65 @@ export default function Home() {
     delta: number;
   } | null>(null);
 
+  // ✅ coach (TIPI allineati a coachRules.ts)
   const [coachInsight, setCoachInsight] = useState<{
-  title: string;
-  bullets: string[];
-  severity: "good" | "warn" | "bad";
-} | null>(null);
-
+    title: string;
+    severity: "good" | "warn" | "bad";
+    bullets: string[];
+  } | null>(null);
 
   // auth
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      if (!u) router.push("/login");
-      else setUid(u.uid);
-    });
-  }, [router]);
+    const unsub = onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null));
+    return () => unsub();
+  }, []);
+
+  // ✅ load coach (usa last7/last14 come vuole buildCoachInsight)
   useEffect(() => {
-  async function loadCoach() {
-  if (!uid || !activeDogId || !targetKcal) return;
+    async function loadCoach() {
+      if (!uid || !activeDogId || !targetKcal) return;
 
-  const rows = await getDailySummaries(uid, activeDogId);
-  const last14 = rows.slice(-14).map((r) => r.net);
-  const last7 = rows.slice(-7).map((r) => r.net);
+      const rows = await getDailySummaries(uid, activeDogId);
 
-  if (!last7.length) {
-    const fallback = {
-      title: "Coach",
-      severity: "good" as const,
-      bullets: ["Inizia a loggare: dopo 7 giorni avrò consigli più precisi."],
-    };
+      const last14Arr = rows.slice(-14).map((r) => Number(r.net ?? 0));
+      const last7Arr = rows.slice(-7).map((r) => Number(r.net ?? 0));
 
-    setCoachInsight(fallback);
+      if (!last7Arr.length) {
+        setCoachInsight({
+          title: "Coach",
+          severity: "good",
+          bullets: ["Inizia a loggare: dopo 7 giorni avrò consigli più precisi."],
+        });
+        return;
+      }
 
-    // (opzionale) salva anche il fallback come tip del giorno
-    await upsertTodayCoachTip({
-      uid,
-      dogId: activeDogId,
-      insight: fallback,
-      metrics: {
-  target: targetKcal,
-},
+      const insight = buildCoachInsight({
+        target: targetKcal,
+        last7: last7Arr,
+        last14: last14Arr.length ? last14Arr : last7Arr,
+      });
 
-    });
+      setCoachInsight(insight);
 
-    return;
-  }
-
-  const insight = buildCoachInsight({
+     // store tip (optional) — firma corretta per il tuo coachTips.ts
+await upsertTodayCoachTip({
+  uid,
+  dogId: activeDogId,
+  insight,
+  metrics: {
     target: targetKcal,
-    last7,
-    last14,
-  });
+    avg7: Math.round(last7Arr.reduce((a, b) => a + b, 0) / last7Arr.length),
+    avg14: Math.round(
+      (last14Arr.length ? last14Arr : last7Arr).reduce((a, b) => a + b, 0) /
+        (last14Arr.length ? last14Arr.length : last7Arr.length)
+    ),
+  },
+});
 
-  setCoachInsight(insight);
+    }
 
-  // ✅ 3.3: salva tip del giorno (AI-ready, gratis)
-  const avg7 = Math.round(last7.reduce((a, b) => a + b, 0) / last7.length);
-  const avg14 = Math.round(last14.reduce((a, b) => a + b, 0) / last14.length);
-
-  await upsertTodayCoachTip({
-    uid,
-    dogId: activeDogId,
-    insight,
-    metrics: {
-      target: targetKcal,
-      avg7,
-      avg14,
-    },
-  });
-}
-
-
-  loadCoach().catch(() => setCoachInsight(null));
-}, [uid, activeDogId, targetKcal]);
-
+    loadCoach().catch(() => setCoachInsight(null));
+  }, [uid, activeDogId, targetKcal]);
 
   // load active dog + calc kcal v2
   useEffect(() => {
@@ -166,7 +157,6 @@ export default function Home() {
         setActiveDogName(null);
         setWeightKg(null);
         setTargetWeightKg(null);
-
         setTargetKcal(null);
         setTargetRange(null);
         setKcalNotes([]);
@@ -195,7 +185,6 @@ export default function Home() {
         targetWeightKg: Number(d.targetWeightKg),
         neutered: Boolean(d.neutered),
         activityLevel: d.activityLevel ?? "normal",
-
         bcs: Number(d.bcs ?? 5),
         lifeStage: d.lifeStage ?? "adult",
         environment: d.environment ?? "indoor",
@@ -215,7 +204,6 @@ export default function Home() {
       setActiveDogName(null);
       setWeightKg(null);
       setTargetWeightKg(null);
-
       setTargetKcal(null);
       setTargetRange(null);
       setKcalNotes([]);
@@ -225,7 +213,7 @@ export default function Home() {
     });
   }, [uid]);
 
-  // legacy: load today logs (calorie/misure veloci)
+  // legacy: load today logs
   useEffect(() => {
     async function loadToday() {
       if (!uid || !activeDogId) return;
@@ -257,7 +245,7 @@ export default function Home() {
     });
   }, [uid, activeDogId]);
 
-  // ✅ nuovo: assicura e carica dailySummary di oggi
+  // dailySummary
   useEffect(() => {
     async function loadSummary() {
       if (!uid || !activeDogId || !targetKcal) return;
@@ -267,50 +255,42 @@ export default function Home() {
     loadSummary().catch(() => setTodaySummary(null));
   }, [uid, activeDogId, targetKcal]);
 
-  const progress = useMemo(() => {
-    if (!targetKcal || targetKcal <= 0) return 0;
-    return Math.max(0, Math.min(1, eatenToday / targetKcal));
-  }, [eatenToday, targetKcal]);
+  const headerBadges = useMemo(() => {
+    const w = weightKg != null ? `${weightKg} kg` : "—";
+    const t = targetWeightKg != null ? `${targetWeightKg} kg` : "—";
+    return { w, t };
+  }, [weightKg, targetWeightKg]);
 
-  const progressPct = `${Math.max(2, Math.round(progress * 100))}%`;
-
-  const deltaBadge = useMemo(() => {
-    if (!todaySummary) return null;
-    const d = todaySummary.delta;
-    const txt = `Δ ${d >= 0 ? "+" : ""}${d}`;
+  if (!uid) {
     return (
-      <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm">
-        {txt}
-      </span>
+      <div className="max-w-md mx-auto p-4">
+        <div className="text-sm text-zinc-700/80">Effettua l’accesso per continuare.</div>
+      </div>
     );
-  }, [todaySummary]);
-
-  if (!uid) return null;
+  }
 
   return (
-    <div className="max-w-xl mx-auto p-4 min-h-screen bg-[#FFFBF5]">
+    <div className="max-w-md mx-auto p-4 pb-10">
       {/* Header */}
-      <div className="flex justify-between items-center mt-2 gap-3">
+      <div className="flex items-start justify-between">
         <div>
-          <h2 className="m-0 text-xl font-black tracking-tight">Oggi</h2>
-          <div className="text-sm text-zinc-700/80 flex items-center gap-1.5">
+          <div className="text-2xl font-black tracking-tight">Oggi</div>
+          <div className="text-sm text-zinc-700/80 font-semibold mt-0.5 flex items-center gap-2">
             <PawPrint className="h-4 w-4" />
-            {activeDogName ? `Cane attivo: ${activeDogName}` : "Seleziona un cane per iniziare"}
+            Cane attivo: <span className="font-extrabold">{activeDogName ?? "—"}</span>
           </div>
 
-          {/* peso + obiettivo sempre visibili */}
-          {activeDogName ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-              <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm flex items-center gap-1">
-                <Scale className="h-3.5 w-3.5" />
-                Peso: {weightKg ?? "—"} kg
-              </span>
-              <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm flex items-center gap-1">
-                <Goal className="h-3.5 w-3.5" />
-                Obiettivo: {targetWeightKg ?? "—"} kg
-              </span>
-            </div>
-          ) : null}
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm inline-flex items-center gap-1">
+              <Scale className="h-3.5 w-3.5" />
+              Peso: {headerBadges.w}
+            </span>
+
+            <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm inline-flex items-center gap-1">
+              <Goal className="h-3.5 w-3.5" />
+              Obiettivo: {headerBadges.t}
+            </span>
+          </div>
         </div>
 
         <TapButton size="sm" fullWidth={false} variant="secondary" onClick={() => signOut(auth)}>
@@ -319,151 +299,133 @@ export default function Home() {
         </TapButton>
       </div>
 
-     {/* Cards */}
-<div className="grid gap-3 mt-4">
-  {/* ✅ CARD OGGI */}
-  {todaySummary ? (
-    <PremiumCard
-      tone="cream"
-      icon="📊"
-      title="Oggi"
-      subtitle={`Target: ${todaySummary.target} kcal`}
-      right={
-        <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm">
-          Δ {todaySummary.delta >= 0 ? "+" : ""}{todaySummary.delta}
-        </span>
-      }
-      onClick={() => router.push("/log")}
-    >
-      <div className="grid grid-cols-3 gap-2 text-sm">
-        <div className="rounded-2xl bg-white/70 ring-1 ring-black/5 p-3">
-          <div className="text-xs text-zinc-700/70 font-extrabold">In</div>
-          <div className="text-lg font-black">{todaySummary.caloriesIn}</div>
+      {/* Cards */}
+      <div className="grid gap-3 mt-4">
+        {/* Oggi (ring) */}
+        {todaySummary ? (
+          <PremiumCard
+            tone="cream"
+            icon="📊"
+            title="Oggi"
+            subtitle={`Target: ${todaySummary.target} kcal`}
+            right={
+              <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm">
+                Δ {todaySummary.delta >= 0 ? "+" : ""}
+                {todaySummary.delta}
+              </span>
+            }
+            onClick={() => router.push("/log")}
+          >
+            <div className="grid gap-3">
+              <CalorieRing
+                eaten={todaySummary.caloriesIn}
+                target={todaySummary.target}
+                burned={todaySummary.caloriesOut}
+              />
+
+              <div className="flex items-center justify-between rounded-2xl bg-white/70 ring-1 ring-black/5 px-3 py-2">
+                <div className="text-xs text-zinc-700/70 font-extrabold">Net</div>
+                <div className="text-sm font-black tabular-nums">{todaySummary.net}</div>
+              </div>
+
+              {targetKcal && kcalNotes.length ? (
+                <details className="rounded-2xl bg-white/70 ring-1 ring-black/5 p-3">
+                  <summary className="list-none [&::-webkit-details-marker]:hidden flex items-center justify-between cursor-pointer select-none">
+                    <div className="flex items-center gap-2">
+                      <Info className="h-4 w-4 text-zinc-700/70" />
+                      <span className="text-xs font-extrabold text-zinc-800">
+                        Dettagli calcolo
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-extrabold text-zinc-700/70">
+                      {targetKcal}
+                      {targetRange ? ` (≈ ${targetRange.low}–${targetRange.high})` : ""} kcal
+                    </span>
+                  </summary>
+
+                  <ul className="mt-2 text-[13px] leading-relaxed text-zinc-800/90 space-y-1.5">
+                    {kcalNotes.slice(0, 6).map((n, idx) => (
+                      <li key={idx} className="flex gap-2">
+                        <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-zinc-900/25 shrink-0" />
+                        <span>{n}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </div>
+          </PremiumCard>
+        ) : null}
+
+        {/* Mangiate / Attività */}
+        <div className="grid grid-cols-2 gap-3">
+          <PremiumCard
+            tone="peach"
+            icon={<Drumstick className="h-5 w-5" />}
+            title="Mangiate"
+            subtitle={targetKcal ? `${eatenToday} kcal` : "—"}
+            onClick={() => router.push("/log")}
+          />
+          <PremiumCard
+            tone="sky"
+            icon={<Activity className="h-5 w-5" />}
+            title="Attività"
+            subtitle={activityToday ? `${activityToday} min` : "—"}
+            onClick={() => router.push("/log")}
+          />
         </div>
-        <div className="rounded-2xl bg-white/70 ring-1 ring-black/5 p-3">
-          <div className="text-xs text-zinc-700/70 font-extrabold">Out</div>
-          <div className="text-lg font-black">{todaySummary.caloriesOut}</div>
+
+        {/* Coach (abbellito) */}
+        {coachInsight ? (
+          <PremiumCard
+            tone={coachInsight.severity === "good" ? "mint" : coachInsight.severity === "warn" ? "peach" : "peach"}
+            icon={<Sparkles className="h-5 w-5" />}
+            title={coachInsight.title}
+            subtitle="Consigli basati sui tuoi ultimi giorni"
+            onClick={() => router.push("/log")}
+          >
+            <div className="grid gap-3">
+              <ul className="grid gap-2">
+                {coachInsight.bullets.slice(0, 3).map((b, i) => (
+                  <li key={i} className="flex gap-2">
+                    <span className="mt-0.5 shrink-0">
+                      {coachInsight.severity === "good" ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                      ) : coachInsight.severity === "warn" ? (
+                        <AlertTriangle className="h-4 w-4 text-orange-600" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-600" />
+                      )}
+                    </span>
+                    <span className="text-[13px] leading-relaxed text-zinc-800/90">{b}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="text-[11px] font-extrabold text-zinc-700/70">
+                Tocca per aprire il log e vedere i dettagli.
+              </div>
+            </div>
+          </PremiumCard>
+        ) : null}
+
+        {/* CTA */}
+        <div className="grid grid-cols-2 gap-3 mt-6">
+          <TapButton variant="primary" onClick={() => router.push("/log")}>
+            <Plus className="h-4 w-4" />
+            Pasto
+          </TapButton>
+
+          <TapButton variant="primary" onClick={() => router.push("/log")}>
+            <Plus className="h-4 w-4" />
+            Attività
+          </TapButton>
         </div>
-        <div className="rounded-2xl bg-white/70 ring-1 ring-black/5 p-3">
-          <div className="text-xs text-zinc-700/70 font-extrabold">Net</div>
-          <div className="text-lg font-black">{todaySummary.net}</div>
+
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <TapButton onClick={() => router.push("/dog")}>Cane</TapButton>
+          <TapButton onClick={() => router.push("/foods")}>Cibi</TapButton>
         </div>
-      </div>
-    </PremiumCard>
-  ) : null}
-
-  {/* ✅ CARD TARGET (la tua) */}
-  <PremiumCard
-    tone="mint"
-    icon={<Target className="h-5 w-5" />}
-    title={activeDogName ? `Target kcal • ${activeDogName}` : "Target kcal"}
-    subtitle={
-      targetKcal && targetRange
-        ? `${targetKcal} kcal (≈ ${targetRange.low}–${targetRange.high})`
-        : "Aggiungi un cane per calcolare"
-    }
-    right={
-      <span className="text-xs font-extrabold px-2 py-1 rounded-xl bg-white/80 ring-1 ring-black/5 shadow-sm">
-        Oggi
-      </span>
-    }
-  >
-    <div className="mt-1">
-      <div className="flex justify-between text-xs text-zinc-700/80 mb-1">
-        <span>Mangiate oggi</span>
-        <span className="font-semibold">
-          {targetKcal ? `${eatenToday} / ${targetKcal}` : "—"}
-        </span>
-      </div>
-
-      <div className="h-3 rounded-full bg-white/70 ring-1 ring-black/5 shadow-inner overflow-hidden">
-        <div className="h-full rounded-full bg-emerald-300" style={{ width: progressPct }} />
-      </div>
-
-      <div className="mt-2 text-xs text-zinc-700/70">
-        {targetKcal
-          ? progress >= 1
-            ? "Hai raggiunto il target"
-            : "Obiettivo di oggi: restare nel range"
-          : "Vai su Cane e salva i dati"}
-      </div>
-
-      {kcalNotes.length ? (
-        <div className="mt-3 rounded-2xl bg-white/70 ring-1 ring-black/5 p-3">
-          <div className="flex items-center gap-2 text-xs font-extrabold text-zinc-700/80">
-            <Info className="h-4 w-4" />
-            Calcolo su misura
-          </div>
-          <ul className="mt-2 text-xs text-zinc-700/70 list-disc pl-4 space-y-1">
-            {kcalNotes.slice(0, 4).map((n, idx) => (
-              <li key={idx}>{n}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </div>
-  </PremiumCard>
-
-  {/* ✅ CARD Mangiate / Attività (la tua) */}
-  <div className="grid grid-cols-2 gap-3">
-    <PremiumCard
-      tone="peach"
-      icon={<Drumstick className="h-5 w-5" />}
-      title="Mangiate"
-      subtitle={targetKcal ? `${eatenToday} kcal` : "—"}
-      onClick={() => router.push("/log")}
-    />
-    <PremiumCard
-      tone="sky"
-      icon={<Activity className="h-5 w-5" />}
-      title="Attività"
-      subtitle={activityToday ? `${activityToday} min` : "—"}
-      onClick={() => router.push("/log")}
-    />
-  </div>
-
-  {/* ✅ CARD COACH (corretta) */}
-  {coachInsight ? (
-    <PremiumCard
-      tone={coachInsight.severity === "good" ? "mint" : coachInsight.severity === "warn" ? "peach" : "cream"}
-      icon={<Sparkles className="h-5 w-5" />}
-      title={coachInsight.title}
-      subtitle={activeDogName ? "Consigli basati sui tuoi ultimi giorni" : "Aggiungi il tuo cane per iniziare"}
-      onClick={() => router.push("/log")}
-    >
-      <div className="text-sm text-zinc-700/80 grid gap-1.5">
-        {coachInsight.bullets.slice(0, 3).map((b, i) => (
-          <div key={i}>• {b}</div>
-        ))}
-      </div>
-    </PremiumCard>
-  ) : (
-    <PremiumCard
-      tone="cream"
-      icon={<Sparkles className="h-5 w-5" />}
-      title="Coach"
-      subtitle={activeDogName ? "Carico consigli..." : "Aggiungi il tuo cane per iniziare"}
-      onClick={() => router.push("/log")}
-    />
-  )}
-</div>
-
-
-      {/* Buttons */}
-      <div className="grid grid-cols-2 gap-3 mt-4">
-        <TapButton variant="primary" onClick={() => router.push("/log")}>
-          <Plus className="h-4 w-4" />
-          Pasto
-        </TapButton>
-        <TapButton variant="primary" onClick={() => router.push("/log")}>
-          <Plus className="h-4 w-4" />
-          Attività
-        </TapButton>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mt-3">
-        <TapButton onClick={() => router.push("/dog")}>Cane</TapButton>
-        <TapButton onClick={() => router.push("/foods")}>Cibi</TapButton>
       </div>
     </div>
   );
