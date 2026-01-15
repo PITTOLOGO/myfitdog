@@ -12,7 +12,17 @@ import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { PremiumCard } from "../components/PremiumCard";
 import { TapButton } from "../components/TapButton";
-import { Dog, LogIn, UserPlus, Mail, Lock, AlertTriangle, User, Globe } from "lucide-react";
+import {
+  Dog,
+  LogIn,
+  UserPlus,
+  Mail,
+  Lock,
+  AlertTriangle,
+  User,
+  Globe,
+  Loader2,
+} from "lucide-react";
 
 type Mode = "login" | "signup";
 
@@ -71,10 +81,17 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // se già loggato -> Home
+  // ✅ evita "flash": aspetta che Firebase dica se l'utente esiste
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // ✅ se già loggato -> Home (con replace!)
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
-      if (u) router.push("/");
+      if (u) {
+        router.replace("/");
+        return;
+      }
+      setCheckingAuth(false);
     });
   }, [router]);
 
@@ -96,13 +113,15 @@ export default function LoginPage() {
   }
 
   async function submit() {
+    if (!canSubmit) return;
+
     setErr(null);
     setBusy(true);
 
     try {
       if (mode === "login") {
         await signInWithEmailAndPassword(auth, email.trim(), password);
-        router.push("/");
+        router.replace("/"); // ✅ importante
         return;
       }
 
@@ -122,7 +141,7 @@ export default function LoginPage() {
         { merge: true }
       );
 
-      router.push("/");
+      router.replace("/"); // ✅ importante
     } catch (e: any) {
       const code = String(e?.code ?? "");
       if (code.includes("auth/invalid-credential") || code.includes("auth/wrong-password")) {
@@ -141,6 +160,18 @@ export default function LoginPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // ✅ schermata di caricamento (solo mentre controlla auth)
+  if (checkingAuth) {
+    return (
+      <div className="max-w-xl mx-auto p-4 min-h-screen grid place-items-center">
+        <div className="flex items-center gap-2 text-zinc-700/70 font-extrabold">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Caricamento…
+        </div>
+      </div>
+    );
   }
 
   return (
