@@ -81,17 +81,16 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // ✅ evita "flash": aspetta che Firebase dica se l'utente esiste
-  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
 
-  // ✅ se già loggato -> Home (con replace!)
+  // ✅ se già loggato -> Home (replace)
   useEffect(() => {
     return onAuthStateChanged(auth, (u) => {
       if (u) {
         router.replace("/");
         return;
       }
-      setCheckingAuth(false);
+      setAuthReady(true);
     });
   }, [router]);
 
@@ -121,14 +120,12 @@ export default function LoginPage() {
     try {
       if (mode === "login") {
         await signInWithEmailAndPassword(auth, email.trim(), password);
-        router.replace("/"); // ✅ importante
+        router.replace("/");
         return;
       }
 
-      // signup
       const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
 
-      // salva profilo utente
       await setDoc(
         doc(db, "users", cred.user.uid),
         {
@@ -141,7 +138,7 @@ export default function LoginPage() {
         { merge: true }
       );
 
-      router.replace("/"); // ✅ importante
+      router.replace("/");
     } catch (e: any) {
       const code = String(e?.code ?? "");
       if (code.includes("auth/invalid-credential") || code.includes("auth/wrong-password")) {
@@ -162,8 +159,8 @@ export default function LoginPage() {
     }
   }
 
-  // ✅ schermata di caricamento (solo mentre controlla auth)
-  if (checkingAuth) {
+  // loader mentre Firebase controlla auth
+  if (!authReady) {
     return (
       <div className="max-w-xl mx-auto p-4 min-h-screen grid place-items-center">
         <div className="flex items-center gap-2 text-zinc-700/70 font-extrabold">
@@ -220,7 +217,6 @@ export default function LoginPage() {
           }
         >
           <div className="grid gap-3 mt-2">
-            {/* Extra fields only for signup */}
             {mode === "signup" ? (
               <>
                 <div className="grid gap-1">
