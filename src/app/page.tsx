@@ -8,12 +8,8 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import {
   Timestamp,
-  collection,
   doc,
   getDoc,
-  getDocs,
-  query,
-  where,
 } from "firebase/firestore";
 
 import { auth, db } from "./lib/firebase";
@@ -28,8 +24,6 @@ import { CalorieRing } from "./components/CalorieRing";
 import { TapButton } from "./components/TapButton";
 
 import {
-  Drumstick,
-  Activity,
   Sparkles,
   PawPrint,
   LogOut,
@@ -71,10 +65,6 @@ export default function Home() {
   const [targetRange, setTargetRange] = useState<{ low: number; high: number } | null>(null);
   const [kcalNotes, setKcalNotes] = useState<string[]>([]);
 
-  // today logs (legacy view)
-  const [eatenToday, setEatenToday] = useState<number>(0);
-  const [activityToday, setActivityToday] = useState<number>(0);
-
   // daily summary
   const [todaySummary, setTodaySummary] = useState<{
     caloriesIn: number;
@@ -84,7 +74,7 @@ export default function Home() {
     delta: number;
   } | null>(null);
 
-  // ✅ coach (TIPI allineati a coachRules.ts)
+  // coach (allineato al tuo coachRules.ts)
   const [coachInsight, setCoachInsight] = useState<{
     title: string;
     severity: "good" | "warn" | "bad";
@@ -96,53 +86,6 @@ export default function Home() {
     const unsub = onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null));
     return () => unsub();
   }, []);
-
-  // ✅ load coach (usa last7/last14 come vuole buildCoachInsight)
-  useEffect(() => {
-    async function loadCoach() {
-      if (!uid || !activeDogId || !targetKcal) return;
-
-      const rows = await getDailySummaries(uid, activeDogId);
-
-      const last14Arr = rows.slice(-14).map((r) => Number(r.net ?? 0));
-      const last7Arr = rows.slice(-7).map((r) => Number(r.net ?? 0));
-
-      if (!last7Arr.length) {
-        setCoachInsight({
-          title: "Coach",
-          severity: "good",
-          bullets: ["Inizia a loggare: dopo 7 giorni avrò consigli più precisi."],
-        });
-        return;
-      }
-
-      const insight = buildCoachInsight({
-        target: targetKcal,
-        last7: last7Arr,
-        last14: last14Arr.length ? last14Arr : last7Arr,
-      });
-
-      setCoachInsight(insight);
-
-     // store tip (optional) — firma corretta per il tuo coachTips.ts
-await upsertTodayCoachTip({
-  uid,
-  dogId: activeDogId,
-  insight,
-  metrics: {
-    target: targetKcal,
-    avg7: Math.round(last7Arr.reduce((a, b) => a + b, 0) / last7Arr.length),
-    avg14: Math.round(
-      (last14Arr.length ? last14Arr : last7Arr).reduce((a, b) => a + b, 0) /
-        (last14Arr.length ? last14Arr.length : last7Arr.length)
-    ),
-  },
-});
-
-    }
-
-    loadCoach().catch(() => setCoachInsight(null));
-  }, [uid, activeDogId, targetKcal]);
 
   // load active dog + calc kcal v2
   useEffect(() => {
@@ -160,9 +103,8 @@ await upsertTodayCoachTip({
         setTargetKcal(null);
         setTargetRange(null);
         setKcalNotes([]);
-        setEatenToday(0);
-        setActivityToday(0);
         setTodaySummary(null);
+        setCoachInsight(null);
         return;
       }
 
@@ -207,43 +149,10 @@ await upsertTodayCoachTip({
       setTargetKcal(null);
       setTargetRange(null);
       setKcalNotes([]);
-      setEatenToday(0);
-      setActivityToday(0);
       setTodaySummary(null);
+      setCoachInsight(null);
     });
   }, [uid]);
-
-  // legacy: load today logs
-  useEffect(() => {
-    async function loadToday() {
-      if (!uid || !activeDogId) return;
-
-      const start = startOfTodayTimestamp();
-
-      const foodRef = collection(db, "users", uid, "dogs", activeDogId, "foodLogs");
-      const foodSnap = await getDocs(query(foodRef, where("createdAt", ">=", start)));
-      let kcalSum = 0;
-      foodSnap.forEach((x) => {
-        const v = x.data() as any;
-        kcalSum += Number(v.kcal ?? 0);
-      });
-      setEatenToday(kcalSum);
-
-      const actRef = collection(db, "users", uid, "dogs", activeDogId, "activityLogs");
-      const actSnap = await getDocs(query(actRef, where("createdAt", ">=", start)));
-      let minSum = 0;
-      actSnap.forEach((x) => {
-        const v = x.data() as any;
-        minSum += Number(v.minutes ?? 0);
-      });
-      setActivityToday(minSum);
-    }
-
-    loadToday().catch(() => {
-      setEatenToday(0);
-      setActivityToday(0);
-    });
-  }, [uid, activeDogId]);
 
   // dailySummary
   useEffect(() => {
@@ -253,6 +162,50 @@ await upsertTodayCoachTip({
       setTodaySummary(s);
     }
     loadSummary().catch(() => setTodaySummary(null));
+  }, [uid, activeDogId, targetKcal]);
+
+  // coach
+  useEffect(() => {
+    async function loadCoach() {
+      if (!uid || !activeDogId || !targetKcal) return;
+
+      const rows = await getDailySummaries(uid, activeDogId);
+      const last14Arr = rows.slice(-14).map((r) => Number(r.net ?? 0));
+      const last7Arr = rows.slice(-7).map((r) => Number(r.net ?? 0));
+
+      if (!last7Arr.length) {
+        setCoachInsight({
+          title: "Coach",
+          severity: "good",
+          bullets: ["Inizia a loggare: dopo 7 giorni avrò consigli più precisi."],
+        });
+        return;
+      }
+
+      const insight = buildCoachInsight({
+        target: targetKcal,
+        last7: last7Arr,
+        last14: last14Arr.length ? last14Arr : last7Arr,
+      });
+
+      setCoachInsight(insight);
+
+      await upsertTodayCoachTip({
+        uid,
+        dogId: activeDogId,
+        insight,
+        metrics: {
+          target: targetKcal,
+          avg7: Math.round(last7Arr.reduce((a, b) => a + b, 0) / last7Arr.length),
+          avg14: Math.round(
+            (last14Arr.length ? last14Arr : last7Arr).reduce((a, b) => a + b, 0) /
+              (last14Arr.length ? last14Arr.length : last7Arr.length)
+          ),
+        },
+      });
+    }
+
+    loadCoach().catch(() => setCoachInsight(null));
   }, [uid, activeDogId, targetKcal]);
 
   const headerBadges = useMemo(() => {
@@ -299,7 +252,6 @@ await upsertTodayCoachTip({
         </TapButton>
       </div>
 
-      {/* Cards */}
       <div className="grid gap-3 mt-4">
         {/* Oggi (ring) */}
         {todaySummary ? (
@@ -357,25 +309,7 @@ await upsertTodayCoachTip({
           </PremiumCard>
         ) : null}
 
-        {/* Mangiate / Attività */}
-        <div className="grid grid-cols-2 gap-3">
-          <PremiumCard
-            tone="peach"
-            icon={<Drumstick className="h-5 w-5" />}
-            title="Mangiate"
-            subtitle={targetKcal ? `${eatenToday} kcal` : "—"}
-            onClick={() => router.push("/log")}
-          />
-          <PremiumCard
-            tone="sky"
-            icon={<Activity className="h-5 w-5" />}
-            title="Attività"
-            subtitle={activityToday ? `${activityToday} min` : "—"}
-            onClick={() => router.push("/log")}
-          />
-        </div>
-
-        {/* Coach (abbellito) */}
+        {/* Coach */}
         {coachInsight ? (
           <PremiumCard
             tone={coachInsight.severity === "good" ? "mint" : coachInsight.severity === "warn" ? "peach" : "peach"}
@@ -409,8 +343,8 @@ await upsertTodayCoachTip({
           </PremiumCard>
         ) : null}
 
-        {/* CTA */}
-        <div className="grid grid-cols-2 gap-3 mt-6">
+        {/* Azioni principali (riordinate) */}
+        <div className="grid grid-cols-2 gap-3 mt-2">
           <TapButton variant="primary" onClick={() => router.push("/log")}>
             <Plus className="h-4 w-4" />
             Pasto
@@ -422,9 +356,9 @@ await upsertTodayCoachTip({
           </TapButton>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mt-3">
+        {/* ✅ SOLO Cane (Cibi rimosso) */}
+        <div className="mt-2">
           <TapButton onClick={() => router.push("/dog")}>Cane</TapButton>
-          <TapButton onClick={() => router.push("/foods")}>Cibi</TapButton>
         </div>
       </div>
     </div>
