@@ -47,24 +47,22 @@ export function PremiumCard({
   onClick,
   tone = "cream",
 }: Props) {
-  const clickable = Boolean(onClick);
   const t = toneMap[tone];
 
   return (
     <motion.div
-      whileTap={clickable ? { scale: 0.985 } : undefined}
-      whileHover={clickable ? { y: -1 } : undefined}
-      transition={{ type: "spring", stiffness: 520, damping: 34 }}
+      whileTap={onClick ? { scale: 0.99 } : undefined}
+      whileHover={onClick ? { y: -1 } : undefined}
+      transition={{ type: "spring", stiffness: 500, damping: 32 }}
       onClick={onClick}
       className={[
         "relative overflow-hidden rounded-[28px] p-4",
-        "bg-gradient-to-b",
+        "bg-gradient-to-br",
         t.bg,
         "ring-1",
         t.ring,
-        "shadow-[0_18px_50px_rgba(17,24,39,0.08)]",
-        "backdrop-blur",
-        clickable ? "cursor-pointer select-none" : "",
+        "shadow-[0_10px_24px_rgba(0,0,0,0.06)]",
+        onClick ? "cursor-pointer select-none" : "",
       ].join(" ")}
     >
       {/* soft glow */}
@@ -81,12 +79,14 @@ export function PremiumCard({
           {icon}
         </div>
 
-        <div className="flex-1">
-          <div className="text-sm font-extrabold text-zinc-900 tracking-tight">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-extrabold text-zinc-900 tracking-tight truncate">
             {title}
           </div>
           {subtitle ? (
-            <div className="text-sm text-zinc-700/80 mt-0.5">{subtitle}</div>
+            <div className="text-sm text-zinc-700/80 mt-0.5 leading-snug">
+              {subtitle}
+            </div>
           ) : null}
         </div>
 
