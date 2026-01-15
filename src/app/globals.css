@@ -1,14 +1,23 @@
 @import "tailwindcss";
 
+/* -----------------------------
+   Base variables
+------------------------------ */
 :root {
-  --app-bg: #fffbf5;
+  --bg: #fffbf5;
   --text: #0f172a;
   --muted: rgba(15, 23, 42, 0.65);
+
+  /* safe-area helpers */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --app-bg: #0b0b0c;
+    --bg: #0b0b0c;
     --text: #f4f4f5;
     --muted: rgba(244, 244, 245, 0.65);
   }
@@ -20,30 +29,90 @@ body {
 }
 
 body {
-  background: radial-gradient(
-      1200px 600px at 10% 0%,
-      rgba(16, 185, 129, 0.10),
-      transparent 55%
-    ),
-    radial-gradient(
-      900px 500px at 100% 10%,
-      rgba(59, 130, 246, 0.10),
-      transparent 55%
-    ),
-    var(--app-bg);
-
+  margin: 0;
   color: var(--text);
 
   /* premium system font stack */
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+
+  overflow-x: hidden;
+  background: var(--bg);
 }
 
-/* ---------- Premium controls (opt-in via class) ---------- */
+/* -----------------------------
+   APP SHELL (sfondo + superficie)
+------------------------------ */
+
+/* Sfondo premium “mesh”, fisso (molto app-like) */
+.app-shell {
+  min-height: 100svh;
+  background:
+    radial-gradient(1100px 600px at 10% 0%, rgba(16, 185, 129, 0.14), transparent 60%),
+    radial-gradient(900px 520px at 95% 10%, rgba(59, 130, 246, 0.12), transparent 58%),
+    radial-gradient(1000px 650px at 40% 115%, rgba(249, 115, 22, 0.10), transparent 60%),
+    linear-gradient(180deg, rgba(255,255,255,0.35), rgba(255,255,255,0) 60%),
+    var(--bg);
+
+  display: flex;
+  justify-content: center;
+
+  /* padding “telefono” + safe-area notch */
+  padding-top: calc(12px + var(--safe-top));
+  padding-right: calc(12px + var(--safe-right));
+  padding-bottom: calc(16px + var(--safe-bottom));
+  padding-left: calc(12px + var(--safe-left));
+}
+
+/* Superficie “app” centrale (su desktop sembra un telefono) */
+.app-surface {
+  width: 100%;
+  max-width: 520px;
+  min-height: calc(100svh - (12px + var(--safe-top)) - (16px + var(--safe-bottom)));
+}
+
+/* “Card board” effetto iOS su schermi più grandi */
+@media (min-width: 640px) {
+  .app-surface {
+    border-radius: 28px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.40);
+    backdrop-filter: blur(16px);
+    box-shadow:
+      0 26px 70px rgba(0, 0, 0, 0.12),
+      inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    .app-surface {
+      background: rgba(10, 10, 11, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow:
+        0 28px 80px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    }
+  }
+}
+
+/* Grain leggerissimo (fa “premium”, non sporca) */
+.app-shell::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.35'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+
+/* -----------------------------
+   Premium controls (opt-in via class)
+------------------------------ */
 
 .ui-select {
   appearance: none;
